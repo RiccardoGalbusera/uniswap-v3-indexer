@@ -12,14 +12,20 @@ export function sqrtPriceX96ToTokenPrices(
   nativeTokenDetails: NativeTokenDetails
 ): BigDecimal[] {
   const token0Decimals =
-    token0.id.split('-')[1] === ADDRESS_ZERO ? nativeTokenDetails.decimals : token0.decimals;
+    token0.id.split("-")[1] === ADDRESS_ZERO
+      ? nativeTokenDetails.decimals
+      : token0.decimals;
   const token1Decimals =
-    token1.id.split('-')[1] === ADDRESS_ZERO ? nativeTokenDetails.decimals : token1.decimals;
+    token1.id.split("-")[1] === ADDRESS_ZERO
+      ? nativeTokenDetails.decimals
+      : token1.decimals;
 
   const num = new BigDecimal((sqrtPriceX96 * sqrtPriceX96).toString());
   const denom = new BigDecimal(Q192.toString());
-  const price1 = exponentToBigDecimal(token0Decimals).times(num)
-                .div(exponentToBigDecimal(token1Decimals).times(denom)).dp(4);
+  const price1 = exponentToBigDecimal(token0Decimals)
+    .times(num)
+    .div(exponentToBigDecimal(token1Decimals).times(denom))
+    .dp(18);
   const price0 = safeDiv(new BigDecimal("1"), price1);
   return [price0, price1];
 }
@@ -55,7 +61,10 @@ export async function findNativePerToken(
 ): Promise<BigDecimal> {
   const tokenAddress = token.id.split("-")[1];
 
-  if (tokenAddress === wrappedNativeAddress.toLowerCase() || tokenAddress === ADDRESS_ZERO) {
+  if (
+    tokenAddress === wrappedNativeAddress.toLowerCase() ||
+    tokenAddress === ADDRESS_ZERO
+  ) {
     return ONE_BD;
   }
 
@@ -65,13 +74,15 @@ export async function findNativePerToken(
 
   const whiteList = await Promise.all(
     // Pool IDs already include chainId since we store them that way in whitelistPools
-    token.whitelistPools.map(poolId => context.Pool.get(poolId))
+    token.whitelistPools.map((poolId) => context.Pool.get(poolId))
   );
   let largestLiquidityETH = ZERO_BD;
   let priceSoFar = ZERO_BD;
 
   for (const pool of whiteList) {
-    if (!pool || pool.liquidity <= ZERO_BI) { continue; }
+    if (!pool || pool.liquidity <= ZERO_BI) {
+      continue;
+    }
 
     if (pool.token0_id === token.id) {
       const token1 = await context.Token.get(pool.token1_id);
@@ -91,7 +102,7 @@ export async function findNativePerToken(
 
     if (pool.token1_id === token.id) {
       const token0 = await context.Token.get(pool.token0_id);
-      
+
       if (token0) {
         const ethLocked = pool.totalValueLockedToken0.times(token0.derivedETH);
 

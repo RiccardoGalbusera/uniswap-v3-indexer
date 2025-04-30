@@ -42,7 +42,7 @@ const ERC20_ABI = [
     outputs: [{ type: "uint8" }],
     stateMutability: "view",
     type: "function",
-  }
+  },
 ] as const;
 
 // Create .cache directory if it doesn't exist
@@ -66,11 +66,11 @@ const getRpcUrls = (chainId: number): string[] => {
   switch (chainId) {
     case 1:
       return [
-        'https://eth.drpc.org',
-        'https://rpc.mevblocker.io/fast',
-        'https://rpc.mevblocker.io',
-        'https://1rpc.io/eth',
-        'https://ethereum-rpc.publicnode.com'
+        "https://eth.drpc.org",
+        "https://rpc.mevblocker.io/fast",
+        "https://rpc.mevblocker.io",
+        "https://1rpc.io/eth",
+        "https://ethereum-rpc.publicnode.com",
       ];
 
     case 42161:
@@ -95,6 +95,10 @@ const getRpcUrls = (chainId: number): string[] => {
       return [process.env.UNICHAIN_RPC_URL || "https://unichain.drpc.org"];
     case 57073:
       return [process.env.INK_RPC_URL || "https://ink.drpc.org"];
+    case 10143:
+      return [
+        process.env.MONAD_TESTNET_RPC_URL || "https://monad-testnet.drpc.org",
+      ];
     // Add generic fallback for any chain
     default:
       throw new Error(`No RPC URL configured for chainId ${chainId}`);
@@ -126,10 +130,12 @@ const getClient = (chainId: number, rpcUrl: string): PublicClient => {
 // Cache of metadata per chainId
 const metadataCaches: Record<number, Record<string, TokenMetadata>> = {};
 
-const bigIntReviver = (k: any, v: any) => (k === 'decimals') ? BigInt(v) : v;
-const bigIntReplacer = (_: any, v: any) => (typeof v === 'bigint') ? v.toString() : v;
+const bigIntReviver = (k: any, v: any) => (k === "decimals" ? BigInt(v) : v);
+const bigIntReplacer = (_: any, v: any) =>
+  typeof v === "bigint" ? v.toString() : v;
 const metadataParser = (json: string) => JSON.parse(json, bigIntReviver);
-const metadataSerializer = (item: any) => JSON.stringify(item, bigIntReplacer, 2);
+const metadataSerializer = (item: any) =>
+  JSON.stringify(item, bigIntReplacer, 2);
 
 // Load cache for a specific chain
 const loadCache = (chainId: number): Record<string, TokenMetadata> => {
@@ -137,7 +143,9 @@ const loadCache = (chainId: number): Record<string, TokenMetadata> => {
     const cachePath = getCachePath(chainId);
     if (existsSync(cachePath)) {
       try {
-        metadataCaches[chainId] = metadataParser(readFileSync(cachePath, "utf8"));
+        metadataCaches[chainId] = metadataParser(
+          readFileSync(cachePath, "utf8")
+        );
       } catch (e) {
         console.error(
           `Error loading token metadata cache for chain ${chainId}:`,
@@ -229,6 +237,15 @@ async function fetchTokenMetadataMulticall(
   address: string,
   chainId: number
 ): Promise<TokenMetadata> {
+  // const chainConfig = CHAIN_CONFIGS[chainId];
+  // return {
+  //   name: `${chainId}-${address}`,
+  //   symbol: "T",
+  //   decimals: isAddressInList(address, chainConfig.stablecoinAddresses)
+  //     ? BigInt(6)
+  //     : BigInt(18),
+  // };
+
   const rpcUrls = getRpcUrls(chainId);
   let name, symbol, decimals;
 
@@ -239,48 +256,55 @@ async function fetchTokenMetadataMulticall(
       client: getClient(chainId, rpcUrl),
     });
 
-    const promiseList = [];
+    let retry = true;
+    while (retry) {
+      const promiseList = [];
 
-    if (name === undefined) {
-      const namePromise = contract.read.name()
-                          .then(val => {
-                            if (val === null) throw 'Result is null';
-                            name = sanitizeString(val);
-                          });
-  
-      const nameBytes32Promise = contract.read.NAME()
-                          .then(val => name = parseBytes32String(val));
-      
-      promiseList.push(Promise.any([namePromise, nameBytes32Promise]));
-    }
+      if (name === undefined) {
+        const namePromise = contract.read.name().then((val) => {
+          if (val === null) throw "Result is null";
+          name = sanitizeString(val);
+        });
 
-    if (symbol === undefined) {
-      const symbolPromise = contract.read.symbol()
-                          .then(val => {
-                            if (val === null) throw 'Result is null';
-                            symbol = sanitizeString(val);
-                          });
-  
-      const symbolBytes32Promise = contract.read.SYMBOL()
-                          .then(val => symbol = parseBytes32String(val));
+        // const nameBytes32Promise = contract.read
+        //   .NAME()
+        //   .then((val) => (name = parseBytes32String(val)));
 
-      promiseList.push(Promise.any([symbolPromise, symbolBytes32Promise]));
-    }
+        promiseList.push(Promise.any([namePromise]));
+      }
 
-    if (decimals === undefined) {
-      const decimalsPromise = contract.read.decimals()
-                          .then(val => {
-                            if (val === null) throw 'Result is null';
-                            decimals = val;
-                          });
+      if (symbol === undefined) {
+        const symbolPromise = contract.read.symbol().then((val) => {
+          if (val === null) throw "Result is null";
+          symbol = sanitizeString(val);
+        });
 
-      promiseList.push(decimalsPromise);
-    }
+        // const symbolBytes32Promise = contract.read
+        //   .SYMBOL()
+        //   .then((val) => (symbol = parseBytes32String(val)));
 
-    try {
-      await Promise.all(promiseList);
-    } catch (err) {
-      console.log(err);
+        promiseList.push(Promise.any([symbolPromise]));
+      }
+
+      if (decimals === undefined) {
+        const decimalsPromise = contract.read.decimals().then((val) => {
+          if (val === null) throw "Result is null";
+          decimals = val;
+        });
+
+        promiseList.push(decimalsPromise);
+      }
+
+      try {
+        await Promise.all(promiseList);
+        retry = false;
+      } catch (err: any) {
+        console.log(err);
+        if (err.message.includes("429")) {
+          await new Promise((resolve) => setTimeout(resolve, 5000));
+          retry = true;
+        } else retry = false;
+      }
     }
 
     if (name !== undefined && symbol !== undefined && decimals !== undefined) {
@@ -289,19 +313,19 @@ async function fetchTokenMetadataMulticall(
   }
 
   return {
-    name: name === undefined ? 'unknown' : name,
-    symbol: symbol === undefined ? 'UNKNOWN' : symbol,
-    decimals: typeof decimals === "number" ? BigInt(decimals) : 18n
+    name: name === undefined ? "unknown" : name,
+    symbol: symbol === undefined ? "UNKNOWN" : symbol,
+    decimals: typeof decimals === "number" ? BigInt(decimals) : 18n,
   };
 }
 
 function parseBytes32String(bytes32String: string | null): string {
-  if (bytes32String === null) throw 'Result is null';
+  if (bytes32String === null) throw "Result is null";
 
   return sanitizeString(
     new TextDecoder().decode(
       new Uint8Array(
-        Buffer.from(bytes32String.slice(2), "hex").filter(n => n !== 0)
+        Buffer.from(bytes32String.slice(2), "hex").filter((n) => n !== 0)
       )
     )
   );
